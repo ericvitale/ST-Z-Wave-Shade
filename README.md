@@ -4,7 +4,7 @@
 This SmartThings device handler works with Z-Wave Shades.
 
 ## Tested Shades / Blinds
-1. Bali Autoview
+1. Bali Autoview (Somfy)
 
 ## Installation via GitHub Integration
 1. Open SmartThings IDE in your web browser and log into your account.
