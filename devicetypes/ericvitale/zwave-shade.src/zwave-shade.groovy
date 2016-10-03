@@ -1,6 +1,7 @@
 /**
  *  Copyright 2016 ericvitale@gmail.com
  *
+ *  Version 1.0.1 - Added support for battery level.
  *  Version 1.0.0 - Initial Release
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -27,12 +28,17 @@ metadata {
 		capability "Polling"
 		capability "Refresh"
 		capability "Sensor"
+        capability "Battery"
+        capability "Configuration"
         
         command "sceneOne"
         command "sceneTwo"
         command "sceneThree"
         command "sceneFour"
         command "sceneFive"
+        command "getBattery"
+        
+        attribute "lastActivity", "string"
         
         fingerprint mfr: "026E", prod: "4345", model: "0038"
         fingerprint deviceId: "0x1007", inClusters: "0x5E,0x80,0x25,0x70,0x72,0x59,0x85,0x73,0x7A,0x5A,0x86,0x20,0x26", outClusters: "0x82", deviceJoinName: "Z-Wave Shade"
@@ -40,7 +46,8 @@ metadata {
     
     preferences {
 	    input "customLevel", "number", title: "Custom Level", required: true, defaultValue: 66, range: "0..100"
-        input "logging", "enum", title: "Log Level", required: false, defaultValue: "DEBUG", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
+        //input "batteryCheckInterval", "number", title: "Minutes Between Battery Check", required: true, defaultValue: 1
+        input "logging", "enum", title: "Log Level", required: false, defaultValue: "INFO", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
     }
 
 	tiles(scale: 2) {
@@ -62,6 +69,10 @@ metadata {
 				attributeState "off", label:'${name}', action:"switch.on", icon:"st.Home.home9", backgroundColor:"#ffffff", nextState:"turningOn"
 				attributeState "turningOn", label:'${name}', action:"switch.off", icon:"st.Home.home9", backgroundColor:"#79b821", nextState:"turningOff"
 				attributeState "turningOff", label:'${name}', action:"switch.on", icon:"st.Home.home9", backgroundColor:"#ffffff", nextState:"turningOn"
+			}
+            
+            tileAttribute ("device.battery", key: "SECONDARY_CONTROL") {
+				attributeState "default", label:'Battery: ${currentValue}%', action: "refresh.refresh"
 			}
 		}
     
@@ -100,32 +111,124 @@ metadata {
 		valueTile("level", "device.level", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
 			state "level", label:'${currentValue} %', unit:"%", backgroundColor:"#ffffff"
 		}
+        
+        /*valueTile("battery", "device.battery", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
+			state "battery", label:'${currentValue}% battery', unit:""
+		}*/
+        
+        /*standardTile("getBattery", "device.getBattery", inactiveLabel: false, decoration: "flat", height: 2, width: 2) {
+			state "default", label:"Get Battery", action:"getBattery", icon: "st.Weather.weather14"
+		}*/
 
-		//main(["switch"])
-		//details(["switch", "level", "refresh"])
         main(["switch", "level"])
-		details(["switchDetails", "ShadeLevel", "levelSliderControl", "sceneOne", "sceneTwo", "sceneThree", "sceneFour", "sceneFive", "refresh", "top", "bottom"])
+		details(["switchDetails", "ShadeLevel", "levelSliderControl", "sceneOne", "sceneTwo", "sceneThree", "sceneFour", "sceneFive", "refresh", "top", "bottom"/*, "battery"*//*,"getBattery"*/])
 
 	}
+}
+
+def configure() {
+    delayBetween([
+		def result = zwave.wakeUpV1.wakeUpNoMoreInformation().format(),
+        zwave.wakeUpV1.wakeUpIntervalSet(seconds:4 * 3600, nodeid:zwaveHubNodeId).format()
+	])
+}
+
+def updated() {
+    log("${getVersionStatementString()}", "DEBUG")
+    
+    if(shouldReconfigure()) {
+    	log("Reconfiguring the device as the state value has changed.", "DEBUG")
+        configure()
+    } else if(isConfigured()) {
+    	log("Device already configured.", "DEBUG")
+    } else {
+    	log("Configuring device.", "DEBUG")
+        configure()
+    }
+
+	sendEvent(name: "sceneOne", value: customLevel, display: false , displayed: false)
+    log("Custom Level Selected: ${customLevel}.", "INFO")
+    log("Debug Level Selected: ${logging}.", "INFO")
+}
+
+def poll() {
+	log("Polling...", "DEBUG")
+    
+    log("${getVersionStatementString()}", "DEBUG")
+    
+    if(shouldReconfigure()) {
+    	log("Reconfiguring the device as the state value has changed.", "DEBUG")
+        configure()
+        setStateVersion(getNewStateVersion())
+        state.configured = true
+    } else if(isConfigured()) {
+    	log("Device already configured.", "DEBUG")
+    } else {
+    	log("Configuring device.", "DEBUG")
+        configure()
+        setStateVersion(getNewStateVersion())
+        state.configured = true
+    }
+    
+	zwave.switchMultilevelV1.switchMultilevelGet().format()
+}
+
+def refresh() {
+	
+    log("Refreshing.", "DEBUG")
+    log("${getVersionStatementString()}", "DEBUG")
+	
+    def commands = []
+	commands << zwave.switchMultilevelV1.switchMultilevelGet().format()
+    commands << zwave.batteryV1.batteryGet().format()
+	if (getDataValue("MSR") == null) {
+		commands << zwave.manufacturerSpecificV1.manufacturerSpecificGet().format()
+	}
+	def result = delayBetween(commands,100)
+    log("result = ${result}", "DEBUG")
+    
+    if(shouldReconfigure()) {
+    	log("Reconfiguring the device as the state value has changed.", "DEBUG")
+        configure()
+        setStateVersion(getNewStateVersion())
+        state.configured = true
+    } else {
+    	log("Device already configured.", "DEBUG")
+    }
+    
+    return result
 }
 
 def parse(String description) {
 	def result = null
 	if (description != "updated") {
 		log("parse() >> zwave.parse($description)", "DEBUG")
-        if(description.trim().endsWith("00 00 00")) {
+        if(description.trim().endsWith("payload: 00 00 00")) {
         	sendEvent(name: "level", value: 0, unit: "%")
             log("Shade is down, setting level to 0%.", "DEBUG")
         } else if(description.contains("command: 2603")) {
         	def hexVal = description.trim()[-8..-7]
+            def movingHex = description.trim()[-2..-1]
             log("hexVal = ${hexVal}.", "DEBUG")
             try {
                 def intVal = zigbee.convertHexToInt(hexVal)
+                def movingInt = zigbee.convertHexToInt(movingHex)
                 log("intVal = ${intVal}.", "DEBUG")
+                
+                if(movingInt == 0) {
+                	log("Shade has stopped.", "INFO")
+                } else if(movingInt == 254) {
+                	log("Shade is moving.", "INFO")
+                } else {
+                	log("movingInt = ${movingInt}.", "INFO")
+                }
+                
                 sendEvent(name: "level", value: intVal, unit: "%")
             } catch(e) {
             	log("Exception ${e}", "ERROR")
             }
+        } else if(description.contains("command: 8003")) {
+        	log("Battery Reported.", "DEBUG")
         }
         
 		def cmd = zwave.parse(description, [0x20: 1, 0x26: 1, 0x70: 1])
@@ -139,7 +242,35 @@ def parse(String description) {
 	} else {
 		log("Parse returned ${result?.descriptionText}", "DEBUG")
 	}
+    
 	return result
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.batteryv1.BatteryReport cmd) {
+        log("BatteryReport", "INFO")
+        def map = [ name: "battery", unit: "%" ]
+        if (cmd.batteryLevel == 0xFF) {  // Special value for low battery alert
+                map.value = 1
+                map.descriptionText = "${device.displayName} has a low battery"
+                map.isStateChange = true
+        } else {
+                map.value = cmd.batteryLevel
+        }
+        // Store time of last battery update so we don't ask every wakeup, see WakeUpNotification handler
+        state.lastbatt = new Date().time
+        createEvent(map)
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpNotification cmd) {
+	log("WakeUpNotification", "INFO")
+        def result = [createEvent(descriptionText: "${device.displayName} woke up", isStateChange: false)]
+
+        if (!state.lastbatt || (new Date().time) - state.lastbatt > 24*60*60*1000) {
+                result << response(zwave.batteryV1.batteryGet())
+                result << response("delay 1200")  // leave time for device to respond to batteryGet
+        }
+        result << response(zwave.wakeUpV1.wakeUpNoMoreInformation())
+        result
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicReport cmd) {
@@ -166,7 +297,6 @@ private dimmerEvents(physicalgraph.zwave.Command cmd) {
 	}
 	return result
 }
-
 
 def zwaveEvent(physicalgraph.zwave.commands.configurationv1.ConfigurationReport cmd) {
 	log.debug "ConfigurationReport $cmd"
@@ -232,21 +362,6 @@ def setLevel(value, duration) {
 	setLevel(value)
 }
 
-def poll() {
-	zwave.switchMultilevelV1.switchMultilevelGet().format()
-}
-
-def refresh() {
-	log("Refreshing.", "DEBUG")
-	def commands = []
-	commands << zwave.switchMultilevelV1.switchMultilevelGet().format()
-	if (getDataValue("MSR") == null) {
-		commands << zwave.manufacturerSpecificV1.manufacturerSpecificGet().format()
-	}
-	def result = delayBetween(commands,100)
-    return result
-}
-
 /************ Begin Logging Methods *******************************************************/
 
 def determineLogLevel(data) {
@@ -272,7 +387,7 @@ def determineLogLevel(data) {
 }
 
 def log(data, type) {
-    data = "ShadyGroup -- v${dhVersion()} --  ${data ?: ''}"
+    data = "Z-Wave Shade -- v${dhVersion()} --  ${data ?: ''}"
         
     if (determineLogLevel(type) >= determineLogLevel(settings?.logging ?: "INFO")) {
         switch (type?.toUpperCase()) {
@@ -292,20 +407,14 @@ def log(data, type) {
                 log.error "${data}"
                 break
             default:
-                log.error "ShadyGroup -- Invalid Log Setting"
+                log.error "Z-Wave Shade -- Invalid Log Setting"
         }
     }
 }
 
-def dhVersion() { return "1.0.0" }
+def dhVersion() { return "1.0.1" }
 
 /************ End Logging Methods *********************************************************/
-
-def updated() {
-	sendEvent(name: "sceneOne", value: customLevel, display: false , displayed: false)
-    log("Custom Level Selected: ${customLevel}.", "INFO")
-    log("Debug Level Selected: ${logging}.", "INFO")
-}
 
 def sceneOne() {
     setLevel(customLevel)
@@ -325,4 +434,50 @@ def sceneFour() {
 
 def sceneFive() {
     setLevel(80)
+}
+
+def isConfigured() {
+	log("${getVersionStatementString()}", "DEBUG")
+	if (state.configured == null || state.configured == false) {
+    	return false
+	} else {
+    	return true
+    }
+}
+
+def getStateVersion() {
+	if(state.version != null) {
+		return state.version
+    } else {
+    	return 0
+    }
+}
+
+def setStateVersion(val) {
+	log("Updating State Version to ${val}.", "INFO")
+	state.version = val
+}
+
+def getNewStateVersion() {
+	return 2
+}
+
+def getVersionStatementString() {
+	return "Current state version is ${getStateVersion()} and new state version is ${getNewStateVersion()}."
+}
+
+def shouldReconfigure() {
+	if(getNewStateVersion() > getStateVersion()) {
+    	return true
+    } else {
+    	return false
+    }
+}
+
+def getBattery() {
+	def commands = []
+    commands << zwave.batteryV1.batteryGet().format()
+	def result = delayBetween(commands,100)
+    log("result = ${result}", "DEBUG")
+    return result
 }
