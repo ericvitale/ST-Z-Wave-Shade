@@ -1,6 +1,8 @@
 /**
  *  Copyright 2016 ericvitale@gmail.com
  *
+ *  Version 1.0.3 - Tweaked configuration calling.
+ *  Version 1.0.2 - Added support for poll, fixed battery reporting bug.
  *  Version 1.0.1 - Added support for battery level.
  *  Version 1.0.0 - Initial Release
  *
@@ -20,6 +22,9 @@
  *  https://github.com/SmartThingsCommunity/SmartThingsPublic/blob/master/devicetypes/smartthings/zwave-dimmer-switch-generic.src/zwave-dimmer-switch-generic.groovy
  *
  */
+ 
+def dhVersion() { return "1.0.2" } 
+ 
 metadata {
 	definition (name: "Z-Wave Shade", namespace: "ericvitale", author: "ericvitale@gmail.com") {
 		capability "Switch Level"
@@ -37,8 +42,12 @@ metadata {
         command "sceneFour"
         command "sceneFive"
         command "getBattery"
+        command "doPoll"
         
         attribute "lastActivity", "string"
+        attribute "lastConfigured", "string"
+        attribute "lastPoll", "string"
+        attribute "lastBattery", "string"
         
         fingerprint mfr: "026E", prod: "4345", model: "0038"
         fingerprint deviceId: "0x1007", inClusters: "0x5E,0x80,0x25,0x70,0x72,0x59,0x85,0x73,0x7A,0x5A,0x86,0x20,0x26", outClusters: "0x82", deviceJoinName: "Z-Wave Shade"
@@ -46,7 +55,6 @@ metadata {
     
     preferences {
 	    input "customLevel", "number", title: "Custom Level", required: true, defaultValue: 66, range: "0..100"
-        //input "batteryCheckInterval", "number", title: "Minutes Between Battery Check", required: true, defaultValue: 1
         input "logging", "enum", title: "Log Level", required: false, defaultValue: "INFO", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
     }
 
@@ -74,6 +82,10 @@ metadata {
             tileAttribute ("device.battery", key: "SECONDARY_CONTROL") {
 				attributeState "default", label:'Battery: ${currentValue}%', action: "refresh.refresh"
 			}
+            
+            /*tileAttribute ("device.lastActivity", key: "SECONDARY_CONTROL") {
+				attributeState "default", label:'Last activity: ${currentValue}', action: "refresh.refresh"
+			}*/
 		}
     
 		standardTile("refresh", "device.switch", width: 2, height: 2, inactiveLabel: false, decoration: "flat") {
@@ -114,16 +126,41 @@ metadata {
         
         /*valueTile("battery", "device.battery", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
 			state "battery", label:'${currentValue}% battery', unit:""
-		}*/
+		}*
         
         /*standardTile("getBattery", "device.getBattery", inactiveLabel: false, decoration: "flat", height: 2, width: 2) {
 			state "default", label:"Get Battery", action:"getBattery", icon: "st.Weather.weather14"
 		}*/
+        
+        standardTile("doPoll", "device.doPoll", inactiveLabel: false, decoration: "flat", height: 2, width: 2) {
+			state "default", label:"Do Poll", action:"doPoll", icon: "st.Weather.weather14"
+		}
+        
+        valueTile("LastActivity", "device.lastActivity", width: 6, height: 2) {
+        	state "default", label: 'Last Activity ${currentValue}'
+        }
+        
+        valueTile("LastConfigured", "device.lastConfigured", width: 6, height: 2) {
+        	state "default", label: 'Last Configured ${currentValue}'
+        }
+        
+        valueTile("LastPoll", "device.lastPoll", width: 6, height: 2) {
+        	state "default", label: 'Last Poll ${currentValue}'
+        }
+        
+        valueTile("LastBattery", "device.lastBattery", width: 6, height: 2) {
+        	state "default", label: 'Last Battery ${currentValue}'
+        }
 
         main(["switch", "level"])
-		details(["switchDetails", "ShadeLevel", "levelSliderControl", "sceneOne", "sceneTwo", "sceneThree", "sceneFour", "sceneFive", "refresh", "top", "bottom"/*, "battery"*//*,"getBattery"*/])
+        //details(["switchDetails", "ShadeLevel", "levelSliderControl", "sceneOne", "sceneTwo", "sceneThree", "sceneFour", "sceneFive", "refresh", "top", "bottom", "LastActivity", "LastConfigured", "LastPoll", "LastBattery", "doPoll"/*, "battery"*//*,"getBattery"*/])
+    	details(["switchDetails", "ShadeLevel", "levelSliderControl", "sceneOne", "sceneTwo", "sceneThree", "sceneFour", "sceneFive", "refresh", "top", "bottom"])
 
 	}
+}
+
+def installed() {
+	poll()
 }
 
 def configure() {
@@ -135,42 +172,43 @@ def configure() {
 
 def updated() {
     log("${getVersionStatementString()}", "DEBUG")
-    
-    if(shouldReconfigure()) {
-    	log("Reconfiguring the device as the state value has changed.", "DEBUG")
-        configure()
-    } else if(isConfigured()) {
-    	log("Device already configured.", "DEBUG")
-    } else {
-    	log("Configuring device.", "DEBUG")
-        configure()
-    }
 
 	sendEvent(name: "sceneOne", value: customLevel, display: false , displayed: false)
     log("Custom Level Selected: ${customLevel}.", "INFO")
     log("Debug Level Selected: ${logging}.", "INFO")
+    
+    poll()
+}
+
+def doPoll() {
+	poll()
 }
 
 def poll() {
 	log("Polling...", "DEBUG")
     
+    updateDeviceLastPoll(new Date())
+    
     log("${getVersionStatementString()}", "DEBUG")
     
-    if(shouldReconfigure()) {
-    	log("Reconfiguring the device as the state value has changed.", "DEBUG")
-        configure()
-        setStateVersion(getNewStateVersion())
-        state.configured = true
-    } else if(isConfigured()) {
-    	log("Device already configured.", "DEBUG")
-    } else {
-    	log("Configuring device.", "DEBUG")
-        configure()
-        setStateVersion(getNewStateVersion())
-        state.configured = true
-    }
+    configCheck()
     
-	zwave.switchMultilevelV1.switchMultilevelGet().format()
+    def commands = []
+	
+    commands << zwave.switchMultilevelV1.switchMultilevelGet().format()
+    commands << zwave.batteryV1.batteryGet().format()
+	
+    if (getDataValue("MSR") == null) {
+		commands << zwave.manufacturerSpecificV1.manufacturerSpecificGet().format()
+	}
+	
+    def result = delayBetween(commands,100)
+    
+    log("result = ${result}", "DEBUG")
+    
+    return result
+    
+	//zwave.switchMultilevelV1.switchMultilevelGet().format()
 }
 
 def refresh() {
@@ -186,15 +224,6 @@ def refresh() {
 	}
 	def result = delayBetween(commands,100)
     log("result = ${result}", "DEBUG")
-    
-    if(shouldReconfigure()) {
-    	log("Reconfiguring the device as the state value has changed.", "DEBUG")
-        configure()
-        setStateVersion(getNewStateVersion())
-        state.configured = true
-    } else {
-    	log("Device already configured.", "DEBUG")
-    }
     
     return result
 }
@@ -246,6 +275,18 @@ def parse(String description) {
 	return result
 }
 
+def configCheck() {
+    if(shouldReconfigure() == true || isConfigured() == false) {
+    	log("Reconfiguring the device as the state value has changed.", "DEBUG")
+        configure()
+        setStateVersion(getNewStateVersion())
+        state.configured = true
+        updateDeviceLastConfigured(new Date())
+    } else {
+    	log("Device already configured.", "DEBUG")
+    }
+}
+
 def zwaveEvent(physicalgraph.zwave.commands.batteryv1.BatteryReport cmd) {
         log("BatteryReport", "INFO")
         def map = [ name: "battery", unit: "%" ]
@@ -258,11 +299,13 @@ def zwaveEvent(physicalgraph.zwave.commands.batteryv1.BatteryReport cmd) {
         }
         // Store time of last battery update so we don't ask every wakeup, see WakeUpNotification handler
         state.lastbatt = new Date().time
+        updateDeviceLastBattery(new Date())
         createEvent(map)
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpNotification cmd) {
 	log("WakeUpNotification", "INFO")
+    updateDeviceLastActivity(new Date())
         def result = [createEvent(descriptionText: "${device.displayName} woke up", isStateChange: false)]
 
         if (!state.lastbatt || (new Date().time) - state.lastbatt > 24*60*60*1000) {
@@ -347,6 +390,7 @@ def off() {
 
 def setLevel(value) {
 	log.debug "setLevel >> value: $value"
+    
 	def valueaux = value as Integer
 	def level = Math.max(Math.min(valueaux, 99), 0)
 	if (level > 0) {
@@ -412,8 +456,6 @@ def log(data, type) {
     }
 }
 
-def dhVersion() { return "1.0.1" }
-
 /************ End Logging Methods *********************************************************/
 
 def sceneOne() {
@@ -459,7 +501,7 @@ def setStateVersion(val) {
 }
 
 def getNewStateVersion() {
-	return 2
+	return 9
 }
 
 def getVersionStatementString() {
@@ -480,4 +522,25 @@ def getBattery() {
 	def result = delayBetween(commands,100)
     log("result = ${result}", "DEBUG")
     return result
+}
+
+def updateDeviceLastActivity(lastActivity) {
+	def finalString = lastActivity?.format('MM/d/yyyy hh:mm a',location.timeZone)    
+	sendEvent(name: "lastActivity", value: finalString, display: false , displayed: false)
+}
+
+def updateDeviceLastConfigured(lastConfigured) {
+	def finalString = lastConfigured?.format('MM/d/yyyy hh:mm a',location.timeZone)
+    log("Raising lastConfigured event with ${finalString}.", "INFO")
+	sendEvent(name: "lastConfigured", value: finalString, display: false , displayed: false)
+}
+
+def updateDeviceLastPoll(lastPoll) {
+	def finalString = lastPoll?.format('MM/d/yyyy hh:mm a',location.timeZone)    
+	sendEvent(name: "lastPoll", value: finalString, display: false , displayed: false)
+}
+
+def updateDeviceLastBattery(lastBattery) {
+	def finalString = lastBattery?.format('MM/d/yyyy hh:mm a',location.timeZone)    
+	sendEvent(name: "lastBattery", value: finalString, display: false , displayed: false)
 }
