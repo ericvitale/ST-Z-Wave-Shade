@@ -1,6 +1,7 @@
 /**
  *  Copyright 2016 ericvitale@gmail.com
  *
+ *  Version 1.0.4 - Added support for the Window Shade capability. 10/15/2016
  *  Version 1.0.3 - Tweaked configuration calling.
  *  Version 1.0.2 - Added support for poll, fixed battery reporting bug.
  *  Version 1.0.1 - Added support for battery level.
@@ -35,6 +36,7 @@ metadata {
 		capability "Sensor"
         capability "Battery"
         capability "Configuration"
+        capability "Window Shade"
         
         command "sceneOne"
         command "sceneTwo"
@@ -63,8 +65,8 @@ metadata {
 			tileAttribute ("device.switch", key: "PRIMARY_CONTROL") {
 				attributeState "on", label:'${name}', action:"switch.off", icon:"st.Home.home9", backgroundColor:"#79b821", nextState:"turningOff"
 				attributeState "off", label:'${name}', action:"switch.on", icon:"st.Home.home9", backgroundColor:"#ffffff", nextState:"turningOn"
-				attributeState "turningOn", label:'${name}', action:"switch.off", icon:"st.Home.home9", backgroundColor:"#79b821", nextState:"turningOff"
-				attributeState "turningOff", label:'${name}', action:"switch.on", icon:"st.Home.home9", backgroundColor:"#ffffff", nextState:"turningOn"
+				attributeState "turningOn", label:'${name}', action:"switch.on", icon:"st.Home.home9", backgroundColor:"#79b821", nextState:"turningOff"
+				attributeState "turningOff", label:'${name}', action:"switch.off", icon:"st.Home.home9", backgroundColor:"#ffffff", nextState:"turningOn"
 			}
 			
             tileAttribute ("device.level", key: "SLIDER_CONTROL") {
@@ -215,6 +217,7 @@ def refresh() {
 	
     log("Refreshing.", "DEBUG")
     log("${getVersionStatementString()}", "DEBUG")
+    log("windowShade = ${device.currentValue('windowShade')}.", "INFO")
 	
     def commands = []
 	commands << zwave.switchMultilevelV1.switchMultilevelGet().format()
@@ -375,35 +378,46 @@ def zwaveEvent(physicalgraph.zwave.Command cmd) {
 }
 
 def on() {
-	delayBetween([
-			zwave.basicV1.basicSet(value: 0xFF).format(),
-			zwave.switchMultilevelV1.switchMultilevelGet().format()
-	],5000)
+    setLevel(100)
 }
 
 def off() {
-	delayBetween([
-			zwave.basicV1.basicSet(value: 0x00).format(),
-			zwave.switchMultilevelV1.switchMultilevelGet().format()
-	],5000)
+	setLevel(0)
 }
 
 def setLevel(value) {
-	log.debug "setLevel >> value: $value"
+	log("setLevel(${value}).", "DEBUG")
     
 	def valueaux = value as Integer
 	def level = Math.max(Math.min(valueaux, 99), 0)
-	if (level > 0) {
+	if (level > 0 && leve <= 99) {
 		sendEvent(name: "switch", value: "on")
-	} else {
+        sendEvent(name: "windowShade", value: "partially open")
+	} else if(level == 0) {
 		sendEvent(name: "switch", value: "off")
-	}
+        sendEvent(name: "windowShade", value: "closed")
+	} else {
+    	sendEvent(name: "windowShade", value: "open")
+    }
+    
 	sendEvent(name: "level", value: level, unit: "%")
 	delayBetween ([zwave.basicV1.basicSet(value: level).format(), zwave.switchMultilevelV1.switchMultilevelGet().format()], 5000)
 }
 
 def setLevel(value, duration) {
 	setLevel(value)
+}
+
+def open() {
+	setLevel(100)
+}
+
+def close() {
+	setLevel(0)
+}
+
+def presetPosition() {
+	setLevel(customLevel)
 }
 
 /************ Begin Logging Methods *******************************************************/
@@ -501,7 +515,7 @@ def setStateVersion(val) {
 }
 
 def getNewStateVersion() {
-	return 9
+	return 10
 }
 
 def getVersionStatementString() {
@@ -525,7 +539,7 @@ def getBattery() {
 }
 
 def updateDeviceLastActivity(lastActivity) {
-	def finalString = lastActivity?.format('MM/d/yyyy hh:mm a',location.timeZone)    
+	def finalString = lastActivity?.format('MM/d/yyyy hh:mm a',location.timeZone)
 	sendEvent(name: "lastActivity", value: finalString, display: false , displayed: false)
 }
 
