@@ -45,6 +45,7 @@ metadata {
         command "sceneFive"
         command "getBattery"
         command "doPoll"
+        command "levelOpenClose"
         
         attribute "lastActivity", "string"
         attribute "lastConfigured", "string"
