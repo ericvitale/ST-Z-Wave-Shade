@@ -420,6 +420,15 @@ def presetPosition() {
 	setLevel(customLevel)
 }
 
+def levelOpenClose(value) {
+    log("levelOpenClose called with value ${value}.", "DEBUG")
+    if (value) {
+        on()
+    } else {
+        off()
+    }
+}
+
 /************ Begin Logging Methods *******************************************************/
 
 def determineLogLevel(data) {
