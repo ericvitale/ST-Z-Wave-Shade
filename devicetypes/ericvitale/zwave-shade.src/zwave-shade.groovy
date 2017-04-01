@@ -1,6 +1,7 @@
 /**
  *  Copyright 2016 ericvitale@gmail.com
  *
+ *  Version 1.0.5 - Added auto-detect support for Somfy by Bali. 03/31/2017
  *  Version 1.0.4 - Added support for the Window Shade capability. 10/15/2016
  *  Version 1.0.3 - Tweaked configuration calling.
  *  Version 1.0.2 - Added support for poll, fixed battery reporting bug.
@@ -53,7 +54,9 @@ metadata {
         attribute "lastBattery", "string"
         
         fingerprint mfr: "026E", prod: "4345", model: "0038"
+        fingerprint mfr: "026E", prod: "4345", model: "5A31"
         fingerprint deviceId: "0x1007", inClusters: "0x5E,0x80,0x25,0x70,0x72,0x59,0x85,0x73,0x7A,0x5A,0x86,0x20,0x26", outClusters: "0x82", deviceJoinName: "Z-Wave Shade"
+        fingerprint deviceId: "0x1107", inClusters: "0x5E,0x80,0x25,0x70,0x72,0x59,0x85,0x73,0x7A,0x5A,0x86,0x20,0x26", outClusters: "0x82", deviceJoinName: "Z-Wave Shade" 
 	}
     
     preferences {
