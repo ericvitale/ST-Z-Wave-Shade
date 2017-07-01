@@ -1,6 +1,7 @@
 /**
  *  Copyright 2016 ericvitale@gmail.com
  *
+ *  Version 1.0.6 - Cleaned up a bit. 06/30/2017
  *  Version 1.0.5 - Added auto-detect support for Somfy by Bali. 03/31/2017
  *  Version 1.0.4 - Added support for the Window Shade capability. 10/15/2016
  *  Version 1.0.3 - Tweaked configuration calling.
@@ -88,10 +89,6 @@ metadata {
             tileAttribute ("device.battery", key: "SECONDARY_CONTROL") {
 				attributeState "default", label:'Battery: ${currentValue}%', action: "refresh.refresh"
 			}
-            
-            /*tileAttribute ("device.lastActivity", key: "SECONDARY_CONTROL") {
-				attributeState "default", label:'Last activity: ${currentValue}', action: "refresh.refresh"
-			}*/
 		}
     
 		standardTile("refresh", "device.switch", width: 2, height: 2, inactiveLabel: false, decoration: "flat") {
@@ -130,14 +127,6 @@ metadata {
 			state "level", label:'${currentValue} %', unit:"%", backgroundColor:"#ffffff"
 		}
         
-        /*valueTile("battery", "device.battery", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
-			state "battery", label:'${currentValue}% battery', unit:""
-		}*
-        
-        /*standardTile("getBattery", "device.getBattery", inactiveLabel: false, decoration: "flat", height: 2, width: 2) {
-			state "default", label:"Get Battery", action:"getBattery", icon: "st.Weather.weather14"
-		}*/
-        
         standardTile("doPoll", "device.doPoll", inactiveLabel: false, decoration: "flat", height: 2, width: 2) {
 			state "default", label:"Do Poll", action:"doPoll", icon: "st.Weather.weather14"
 		}
@@ -159,7 +148,6 @@ metadata {
         }
 
         main(["switch", "level"])
-        //details(["switchDetails", "ShadeLevel", "levelSliderControl", "sceneOne", "sceneTwo", "sceneThree", "sceneFour", "sceneFive", "refresh", "top", "bottom", "LastActivity", "LastConfigured", "LastPoll", "LastBattery", "doPoll"/*, "battery"*//*,"getBattery"*/])
     	details(["switchDetails", "ShadeLevel", "levelSliderControl", "sceneOne", "sceneTwo", "sceneThree", "sceneFour", "sceneFive", "refresh", "top", "bottom"])
 
 	}
@@ -213,8 +201,6 @@ def poll() {
     log("result = ${result}", "DEBUG")
     
     return result
-    
-	//zwave.switchMultilevelV1.switchMultilevelGet().format()
 }
 
 def refresh() {
@@ -382,19 +368,23 @@ def zwaveEvent(physicalgraph.zwave.Command cmd) {
 }
 
 def on() {
-    setLevel(100)
+    setLevel(99)
 }
 
 def off() {
 	setLevel(0)
 }
 
-def setLevel(value) {
-	log("setLevel(${value}).", "DEBUG")
+def setLevel(level) {
+	log("setLevel(${level}).", "DEBUG")
     
-	def valueaux = value as Integer
-	def level = Math.max(Math.min(valueaux, 99), 0)
-	if (level > 0 && leve <= 99) {
+    if(level >= 100) {
+    	level = getMaxLevel()
+    } else if(level < 0) {
+    	level = 0
+    }
+    
+	if (level > 0 && level < 99) {
 		sendEvent(name: "switch", value: "on")
         sendEvent(name: "windowShade", value: "partially open")
 	} else if(level == 0) {
@@ -413,7 +403,7 @@ def setLevel(value, duration) {
 }
 
 def open() {
-	setLevel(100)
+	setLevel(getMaxLevel())
 }
 
 def close() {
@@ -503,6 +493,10 @@ def sceneFour() {
 
 def sceneFive() {
     setLevel(80)
+}
+
+def getMaxLevel() {
+	return 99
 }
 
 def isConfigured() {
