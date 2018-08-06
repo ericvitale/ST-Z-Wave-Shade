@@ -1,6 +1,7 @@
 /**
  *  Copyright 2016 ericvitale@gmail.com
  *
+ *  Version 1.0.8 - Allow Shady app to call the specific custom setting for each shade. 08/06/2018
  *  Version 1.0.7 - Updated "on" indicator color to match ST blue (#00a0dc). 08/03/2018
  *  Version 1.0.6 - Cleaned up a bit. 06/30/2017
  *  Version 1.0.5 - Added auto-detect support for Somfy by Bali. 03/31/2017
@@ -62,8 +63,10 @@ metadata {
 	}
     
     preferences {
-	    input "customLevel", "number", title: "Custom Level", required: true, defaultValue: 66, range: "0..100"
-        input "logging", "enum", title: "Log Level", required: false, defaultValue: "INFO", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
+	    section("Settings") {
+        	input "customLevel", "number", title: "Custom Level", required: true, defaultValue: 66, range: "0..100"
+        	input "logging", "enum", title: "Log Level", required: false, defaultValue: "INFO", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
+        }
     }
 
 	tiles(scale: 2) {
